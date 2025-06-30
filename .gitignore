@@ -1,0 +1,35 @@
+# Системные файлы macOS
+.DS_Store
+.DS_Store?
+
+# Системные файлы Windows
+Thumbs.db
+Desktop.ini
+
+# Виртуальное окружение Python
+venv/
+env/
+*.pyc
+__pycache__/
+.python-version
+
+# Фронтенд зависимости и сборка
+node_modules/
+dist/
+.vite/
+
+# Локальные файлы окружения
+.env
+.env.local
+.env.development
+.env.production
+
+# Временные файлы редакторов
+.idea/  # PyCharm/IntelliJ
+*.sublime-project
+*.sublime-workspace
+.vscode/
+
+# Логи и временные файлы
+*.log
+*.tmp
