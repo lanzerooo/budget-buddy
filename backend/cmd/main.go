@@ -18,6 +18,7 @@ func main() {
 		log.Fatalf("failed to connect to db: %v", err)
 	}
 	repo := repository.NewRepository(db)
+	repo.AutoMigrate()
 	svc := service.NewService(repo)
 	h := handler.NewHandler(svc)
 
