@@ -8,9 +8,10 @@ import (
 	"syscall"
 	"time"
 
-	"budgetbuddy/internal/user/handlers"
-	"budgetbuddy/internal/user/migrations"
-	"budgetbuddy/internal/user/repository"
+	"budgetbuddy/internal/finance/handlers"
+	"budgetbuddy/internal/finance/migrations"
+	finance_repository "budgetbuddy/internal/finance/repository"
+	user_repository "budgetbuddy/internal/user/repository"
 	"budgetbuddy/pkg/config"
 	"budgetbuddy/pkg/logger"
 )
@@ -30,22 +31,29 @@ func main() {
 		logger.Fatal("Failed to run migrations: ", err)
 	}
 
-	// Инициализация репозитория
-	repo, err := repository.NewRepository(cfg)
+	// Инициализация репозитория Finance Service
+	repo, err := finance_repository.NewRepository(cfg)
 	if err != nil {
-		logger.Fatal("Failed to initialize repository: ", err)
+		logger.Fatal("Failed to initialize finance repository: ", err)
 	}
 	defer repo.Close()
+
+	// Инициализация репозитория User Service
+	userRepo, err := user_repository.NewRepository(cfg)
+	if err != nil {
+		logger.Fatal("Failed to initialize user repository: ", err)
+	}
+	defer userRepo.Close()
 
 	// Инициализация роутера
 	mux := http.NewServeMux()
 
 	// Инициализация обработчиков
-	handlers.SetupRoutes(mux, repo)
+	handlers.SetupRoutes(mux, repo, userRepo, cfg)
 
 	// Настройка сервера
 	server := &http.Server{
-		Addr:         ":" + cfg.UserServicePort,
+		Addr:         ":" + cfg.FinanceServicePort,
 		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -53,7 +61,7 @@ func main() {
 
 	// Запуск сервера в горутине
 	go func() {
-		logger.Info("Starting server on port ", cfg.UserServicePort)
+		logger.Info("Starting finance service on port ", cfg.FinanceServicePort)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatal("Server failed: ", err)
 		}
@@ -71,5 +79,5 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Fatal("Server shutdown failed: ", err)
 	}
-	logger.Info("Server gracefully stopped")
+	logger.Info("Finance service gracefully stopped")
 }

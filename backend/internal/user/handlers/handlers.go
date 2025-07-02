@@ -40,6 +40,19 @@ func (h *Handlers) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Проверка на существование email
+	existingUser, err := h.repo.FindUserByEmail(req.Email)
+	if err != nil {
+		http.Error(w, "Failed to check user existence", http.StatusInternalServerError)
+		logger.Error("Failed to check user existence: ", err)
+		return
+	}
+	if existingUser != nil {
+		http.Error(w, "Email already registered", http.StatusConflict)
+		logger.Error("Email already registered: ", req.Email)
+		return
+	}
+
 	// Хеширование пароля
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -99,6 +112,7 @@ func (h *Handlers) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if user == nil {
 		http.Error(w, "User not found", http.StatusUnauthorized)
+		logger.Error("User not found: ", req.Email)
 		return
 	}
 
