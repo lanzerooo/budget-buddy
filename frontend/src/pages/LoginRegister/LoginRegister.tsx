@@ -9,6 +9,7 @@ function LoginRegister() {
     const [name, setName] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
     const [error, setError] = useState("");
+    const [success, setSuccess] = useState(""); // Новое состояние для успеха
 
     const handleFormSwitch = (type: "login" | "register") => {
         setFormType(type);
@@ -17,17 +18,20 @@ function LoginRegister() {
         setName("");
         setConfirmPassword("");
         setError("");
+        setSuccess("");
     };
 
-    async function handleLogin(email: string, password: string): Promise<void> {
+    async function handleLogin(email: string, password: string): Promise<boolean> {
         try {
             const response = await axios.post<{ token: string }>('http://localhost:8080/login', {
                 email,
                 password,
             });
             localStorage.setItem('token', response.data.token);
-            console.log('Успешный вход:', response.data.token);
+            setSuccess("Вход успешен!");
             setError("");
+            console.log('Успешный вход:', response.data.token);
+            return true; // Успех
         } catch (error: unknown) {
             if (axios.isAxiosError(error)) {
                 const axiosError = error as AxiosError<{ message?: string }>;
@@ -35,13 +39,16 @@ function LoginRegister() {
             } else {
                 setError('Неизвестная ошибка');
             }
+            setSuccess("");
+            return false; // Неуспех
         }
     }
 
-    async function handleRegister(email: string, password: string, name: string): Promise<void> {
+    async function handleRegister(email: string, password: string, name: string): Promise<boolean> {
         if (password !== confirmPassword) {
             setError('Пароли не совпадают');
-            return;
+            setSuccess("");
+            return false;
         }
         try {
             const response = await axios.post<{ token: string }>('http://localhost:8080/register', {
@@ -50,8 +57,10 @@ function LoginRegister() {
                 name,
             });
             localStorage.setItem('token', response.data.token);
-            console.log('Успешная регистрация:', response.data.token);
+            setSuccess("Регистрация успешна!");
             setError("");
+            console.log('Успешная регистрация:', response.data.token);
+            return true; // Успех
         } catch (error: unknown) {
             if (axios.isAxiosError(error)) {
                 const axiosError = error as AxiosError<{ message?: string }>;
@@ -59,17 +68,27 @@ function LoginRegister() {
             } else {
                 setError('Неизвестная ошибка');
             }
+            setSuccess("");
+            return false; // Неуспех
         }
     }
 
-    const handleLoginSubmit = (e: FormEvent<HTMLFormElement>) => {
+    const handleLoginSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        handleLogin(email, password);
+        const success = await handleLogin(email, password);
+        if (success) {
+            // Здесь можно добавить перенаправление или другую логику
+            console.log('Логин прошёл успешно');
+        }
     };
 
-    const handleRegisterSubmit = (e: FormEvent<HTMLFormElement>) => {
+    const handleRegisterSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        handleRegister(email, password, name);
+        const success = await handleRegister(email, password, name);
+        if (success) {
+            // Здесь можно добавить перенаправление или другую логику
+            console.log('Регистрация прошла успешно');
+        }
     };
 
     return (
@@ -89,6 +108,7 @@ function LoginRegister() {
                 </button>
             </div>
             {error && <p className={styles.error}>{error}</p>}
+            {success && <p className={styles.success}>{success}</p>}
             {formType === "login" ? (
                 <form onSubmit={handleLoginSubmit} className={styles.form}>
                     <h2>Вход</h2>
