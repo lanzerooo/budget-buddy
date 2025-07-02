@@ -9,7 +9,8 @@ function LoginRegister() {
     const [name, setName] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
     const [error, setError] = useState("");
-    const [success, setSuccess] = useState(""); // Новое состояние для успеха
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
 
     const handleFormSwitch = (type: "login" | "register") => {
         setFormType(type);
@@ -18,38 +19,46 @@ function LoginRegister() {
         setName("");
         setConfirmPassword("");
         setError("");
-        setSuccess("");
+        setIsAuthenticated(false);
     };
 
     async function handleLogin(email: string, password: string): Promise<boolean> {
+        setIsLoading(true);
         try {
             const response = await axios.post<{ token: string }>('http://localhost:8080/login', {
                 email,
                 password,
             });
             localStorage.setItem('token', response.data.token);
-            setSuccess("Вход успешен!");
+            setIsAuthenticated(true);
             setError("");
             console.log('Успешный вход:', response.data.token);
-            return true; // Успех
+            return true;
         } catch (error: unknown) {
             if (axios.isAxiosError(error)) {
                 const axiosError = error as AxiosError<{ message?: string }>;
-                setError(axiosError.response?.data?.message || 'Что-то пошло не так');
+                if (!axiosError.response) {
+                    setError('Не удалось подключиться к серверу (CORS или сервер недоступен)');
+                } else {
+                    setError(axiosError.response?.data?.message || 'Что-то пошло не так');
+                }
             } else {
                 setError('Неизвестная ошибка');
             }
-            setSuccess("");
-            return false; // Неуспех
+            setIsAuthenticated(false);
+            return false;
+        } finally {
+            setIsLoading(false);
         }
     }
 
     async function handleRegister(email: string, password: string, name: string): Promise<boolean> {
         if (password !== confirmPassword) {
             setError('Пароли не совпадают');
-            setSuccess("");
+            setIsAuthenticated(false);
             return false;
         }
+        setIsLoading(true);
         try {
             const response = await axios.post<{ token: string }>('http://localhost:8080/register', {
                 email,
@@ -57,19 +66,25 @@ function LoginRegister() {
                 name,
             });
             localStorage.setItem('token', response.data.token);
-            setSuccess("Регистрация успешна!");
+            setIsAuthenticated(true);
             setError("");
             console.log('Успешная регистрация:', response.data.token);
-            return true; // Успех
+            return true;
         } catch (error: unknown) {
             if (axios.isAxiosError(error)) {
                 const axiosError = error as AxiosError<{ message?: string }>;
-                setError(axiosError.response?.data?.message || 'Что-то пошло не так');
+                if (!axiosError.response) {
+                    setError('Не удалось подключиться к серверу (CORS или сервер недоступен)');
+                } else {
+                    setError(axiosError.response?.data?.message || 'Что-то пошло не так');
+                }
             } else {
                 setError('Неизвестная ошибка');
             }
-            setSuccess("");
-            return false; // Неуспех
+            setIsAuthenticated(false);
+            return false;
+        } finally {
+            setIsLoading(false);
         }
     }
 
@@ -77,8 +92,8 @@ function LoginRegister() {
         e.preventDefault();
         const success = await handleLogin(email, password);
         if (success) {
-            // Здесь можно добавить перенаправление или другую логику
             console.log('Логин прошёл успешно');
+            // Здесь можно добавить перенаправление: navigate('/dashboard')
         }
     };
 
@@ -86,8 +101,8 @@ function LoginRegister() {
         e.preventDefault();
         const success = await handleRegister(email, password, name);
         if (success) {
-            // Здесь можно добавить перенаправление или другую логику
             console.log('Регистрация прошла успешно');
+            // Здесь можно добавить перенаправление: navigate('/dashboard')
         }
     };
 
@@ -108,7 +123,7 @@ function LoginRegister() {
                 </button>
             </div>
             {error && <p className={styles.error}>{error}</p>}
-            {success && <p className={styles.success}>{success}</p>}
+            {isAuthenticated && <p className={styles.success}>Успешно вошли!</p>}
             {formType === "login" ? (
                 <form onSubmit={handleLoginSubmit} className={styles.form}>
                     <h2>Вход</h2>
@@ -119,6 +134,7 @@ function LoginRegister() {
                         onChange={(e) => setEmail(e.target.value)}
                         required
                         className={styles.input}
+                        disabled={isLoading}
                     />
                     <input
                         type="password"
@@ -127,8 +143,11 @@ function LoginRegister() {
                         onChange={(e) => setPassword(e.target.value)}
                         required
                         className={styles.input}
+                        disabled={isLoading}
                     />
-                    <button type="submit" className={styles.button}>Войти</button>
+                    <button type="submit" className={styles.button} disabled={isLoading}>
+                        {isLoading ? <span className={styles.loader}></span> : "Войти"}
+                    </button>
                 </form>
             ) : (
                 <form onSubmit={handleRegisterSubmit} className={styles.form}>
@@ -140,6 +159,7 @@ function LoginRegister() {
                         onChange={(e) => setName(e.target.value)}
                         required
                         className={styles.input}
+                        disabled={isLoading}
                     />
                     <input
                         type="email"
@@ -148,6 +168,7 @@ function LoginRegister() {
                         onChange={(e) => setEmail(e.target.value)}
                         required
                         className={styles.input}
+                        disabled={isLoading}
                     />
                     <input
                         type="password"
@@ -156,6 +177,7 @@ function LoginRegister() {
                         onChange={(e) => setPassword(e.target.value)}
                         required
                         className={styles.input}
+                        disabled={isLoading}
                     />
                     <input
                         type="password"
@@ -164,8 +186,11 @@ function LoginRegister() {
                         onChange={(e) => setConfirmPassword(e.target.value)}
                         required
                         className={styles.input}
+                        disabled={isLoading}
                     />
-                    <button type="submit" className={styles.button}>Зарегистрироваться</button>
+                    <button type="submit" className={styles.button} disabled={isLoading}>
+                        {isLoading ? <span className={styles.loader}></span> : "Зарегистрироваться"}
+                    </button>
                 </form>
             )}
         </div>
