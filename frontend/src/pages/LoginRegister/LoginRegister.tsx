@@ -60,7 +60,7 @@ function LoginRegister() {
         }
         setIsLoading(true);
         try {
-            const response = await axios.post<{ token: string }>('http://localhost:8080/register', {
+            const response = await axios.post<{ token: string }>('http://localhost:8081/register', {
                 email,
                 password,
                 name,
