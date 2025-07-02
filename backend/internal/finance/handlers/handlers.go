@@ -25,18 +25,38 @@ func NewHandlers(repo *finance_repository.Repository, userRepo *user_repository.
 	return &Handlers{repo: repo, userRepo: userRepo, jwtSecret: cfg.JWTSecret}
 }
 
+func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Разрешаем запросы с фронтенда
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+		// Обрабатываем preflight-запросы
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Передаём управление следующему обработчику
+		next(w, r)
+	}
+}
+
 func SetupRoutes(mux *http.ServeMux, repo *finance_repository.Repository, userRepo *user_repository.Repository, cfg *config.Config) {
 	h := NewHandlers(repo, userRepo, cfg)
-	mux.HandleFunc("/income", h.authMiddleware(h.AddIncome))
-	mux.HandleFunc("/expense", h.authMiddleware(h.AddExpense))
-	mux.HandleFunc("/transactions", h.authMiddleware(h.GetTransactions))
-	mux.HandleFunc("/categories", h.authMiddleware(h.handleCategories))
-	mux.HandleFunc("/subcategories", h.authMiddleware(h.handleSubcategories))
-	mux.HandleFunc("/goals", h.authMiddleware(h.handleGoals))
-	mux.HandleFunc("/analytics/spending", h.authMiddleware(h.SpendingByCategory))
-	mux.HandleFunc("/analytics/trends", h.authMiddleware(h.IncomeExpenseTrends))
-	mux.HandleFunc("/analytics/average-spending", h.authMiddleware(h.AverageSpendingByDayOfWeek))
-	mux.HandleFunc("/analytics/forecast", h.authMiddleware(h.ForecastSavings))
+	// corsMiddleware ко всем маршрутам
+	mux.HandleFunc("/income", corsMiddleware(h.authMiddleware(h.AddIncome)))
+	mux.HandleFunc("/expense", corsMiddleware(h.authMiddleware(h.AddExpense)))
+	mux.HandleFunc("/transactions", corsMiddleware(h.authMiddleware(h.GetTransactions)))
+	mux.HandleFunc("/categories", corsMiddleware(h.authMiddleware(h.handleCategories)))
+	mux.HandleFunc("/subcategories", corsMiddleware(h.authMiddleware(h.handleSubcategories)))
+	mux.HandleFunc("/goals", corsMiddleware(h.authMiddleware(h.handleGoals)))
+	mux.HandleFunc("/analytics/spending", corsMiddleware(h.authMiddleware(h.SpendingByCategory)))
+	mux.HandleFunc("/analytics/trends", corsMiddleware(h.authMiddleware(h.IncomeExpenseTrends)))
+	mux.HandleFunc("/analytics/average-spending", corsMiddleware(h.authMiddleware(h.AverageSpendingByDayOfWeek)))
+	mux.HandleFunc("/analytics/forecast", corsMiddleware(h.authMiddleware(h.ForecastSavings)))
 }
 
 func (h *Handlers) authMiddleware(next http.HandlerFunc) http.HandlerFunc {

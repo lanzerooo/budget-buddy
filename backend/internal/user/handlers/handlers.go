@@ -21,10 +21,30 @@ func NewHandlers(repo *repository.Repository) *Handlers {
 	return &Handlers{repo: repo}
 }
 
+func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Разрешаем запросы с фронтенда
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+		// Обрабатываем preflight-запросы
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Передаём управление следующему обработчику
+		next(w, r)
+	}
+}
+
 func SetupRoutes(mux *http.ServeMux, repo *repository.Repository) {
 	h := NewHandlers(repo)
-	mux.HandleFunc("/register", h.RegisterHandler)
-	mux.HandleFunc("/login", h.LoginHandler)
+	// corsMiddleware к маршрутам
+	mux.HandleFunc("/register", corsMiddleware(h.RegisterHandler))
+	mux.HandleFunc("/login", corsMiddleware(h.LoginHandler))
 }
 
 func (h *Handlers) RegisterHandler(w http.ResponseWriter, r *http.Request) {
