@@ -1,9 +1,9 @@
 package auth
 
 import (
-	"time"
-
 	"budgetbuddy/pkg/config"
+	"budgetbuddy/pkg/logger"
+	"time"
 
 	"github.com/dgrijalva/jwt-go"
 )
@@ -11,14 +11,13 @@ import (
 func GenerateJWT(email string) (string, error) {
 	cfg, err := config.Load()
 	if err != nil {
+		logger.Error("Failed to load config: ", err)
 		return "", err
 	}
 
-	claims := jwt.MapClaims{
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"email": email,
 		"exp":   time.Now().Add(time.Hour * 24).Unix(),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	})
 	return token.SignedString([]byte(cfg.JWTSecret))
 }

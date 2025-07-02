@@ -4,13 +4,9 @@ import (
 	"budgetbuddy/pkg/config"
 	"budgetbuddy/pkg/logger"
 	"database/sql"
-	"embed"
 
 	_ "github.com/lib/pq"
 )
-
-//go:embed *.sql
-var migrations embed.FS
 
 func RunMigrations(cfg *config.Config) error {
 	db, err := sql.Open("postgres", cfg.DBUrl)
@@ -20,19 +16,38 @@ func RunMigrations(cfg *config.Config) error {
 	}
 	defer db.Close()
 
-	// Чтение и выполнение миграции
-	migrationSQL, err := migrations.ReadFile("001_create_users_table.sql")
+	// Проверка существования таблицы users
+	var tableExists bool
+	err = db.QueryRow(`SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'users'
+    )`).Scan(&tableExists)
 	if err != nil {
-		logger.Error("Failed to read migration file: ", err)
+		logger.Error("Failed to check if users table exists: ", err)
 		return err
 	}
 
-	_, err = db.Exec(string(migrationSQL))
-	if err != nil {
-		logger.Error("Failed to execute migration: ", err)
-		return err
+	if !tableExists {
+		// Создание таблицы users
+		_, err = db.Exec(`
+            CREATE TABLE users (
+                id SERIAL PRIMARY KEY,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP NOT NULL
+            )
+        `)
+		if err != nil {
+			logger.Error("Failed to create users table: ", err)
+			return err
+		}
+		logger.Info("Users table created successfully")
+	} else {
+		logger.Info("Users table already exists")
 	}
 
-	logger.Info("Migrations executed successfully")
+	logger.Info("User migrations executed successfully")
 	return nil
 }
