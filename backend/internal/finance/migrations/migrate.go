@@ -277,6 +277,34 @@ func RunMigrations(cfg *config.Config) error {
 		logger.Info("Goals table created successfully")
 	}
 
+	// Проверка и создание таблицы budgets
+	err = db.QueryRow(`SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'budgets'
+    )`).Scan(&tableExists)
+	if err != nil {
+		logger.Error("Failed to check if budgets table exists: ", err)
+		return err
+	}
+	if !tableExists {
+		_, err = db.Exec(`
+            CREATE TABLE budgets (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                category_id INTEGER REFERENCES categories(id),
+                amount DECIMAL(10,2) NOT NULL,
+                month VARCHAR(7) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `)
+		if err != nil {
+			logger.Error("Failed to create budgets table: ", err)
+			return err
+		}
+		logger.Info("Budgets table created successfully")
+	}
+
 	logger.Info("Finance migrations executed successfully")
 	return nil
 }

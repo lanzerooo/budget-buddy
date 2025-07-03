@@ -24,3 +24,19 @@ type LoginRequest struct {
 type LoginResponse struct {
 	Token string `json:"token"`
 }
+
+//ДОБАВЛЕНЫ СТРУКТУРЫ ДЛЯ НОВЫХ ЗАПРОСОВ
+
+type UserProfileResponse struct {
+	Email string `json:"email"`
+	Name  string `json:"name"`
+}
+
+type UpdateProfileRequest struct {
+	Name string `json:"name"`
+}
+
+type UpdatePasswordRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+}

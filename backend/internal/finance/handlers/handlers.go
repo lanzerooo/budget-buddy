@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"budgetbuddy/internal/finance/models"
@@ -11,102 +12,71 @@ import (
 	user_repository "budgetbuddy/internal/user/repository"
 	"budgetbuddy/pkg/config"
 	"budgetbuddy/pkg/logger"
+	"budgetbuddy/pkg/middleware"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/gorilla/websocket"
 )
 
 type Handlers struct {
 	repo      *finance_repository.Repository
 	userRepo  *user_repository.Repository
 	jwtSecret string
+	wsConns   map[int64][]*websocket.Conn
+	wsMutex   sync.RWMutex
 }
 
 func NewHandlers(repo *finance_repository.Repository, userRepo *user_repository.Repository, cfg *config.Config) *Handlers {
-	return &Handlers{repo: repo, userRepo: userRepo, jwtSecret: cfg.JWTSecret}
+	return &Handlers{
+		repo:      repo,
+		userRepo:  userRepo,
+		jwtSecret: cfg.JWTSecret,
+		wsConns:   make(map[int64][]*websocket.Conn),
+	}
 }
 
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Разрешаем запросы с фронтенда
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 
-		// Обрабатываем preflight-запросы
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 
-		// Передаём управление следующему обработчику
 		next(w, r)
 	}
+}
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return r.Header.Get("Origin") == "http://localhost:5173"
+	},
+}
+
+type WebSocketMessage struct {
+	Event string      `json:"event"`
+	Data  interface{} `json:"data"`
 }
 
 func SetupRoutes(mux *http.ServeMux, repo *finance_repository.Repository, userRepo *user_repository.Repository, cfg *config.Config) {
 	h := NewHandlers(repo, userRepo, cfg)
-	// corsMiddleware ко всем маршрутам
-	mux.HandleFunc("/income", corsMiddleware(h.authMiddleware(h.AddIncome)))
-	mux.HandleFunc("/expense", corsMiddleware(h.authMiddleware(h.AddExpense)))
-	mux.HandleFunc("/transactions", corsMiddleware(h.authMiddleware(h.GetTransactions)))
-	mux.HandleFunc("/categories", corsMiddleware(h.authMiddleware(h.handleCategories)))
-	mux.HandleFunc("/subcategories", corsMiddleware(h.authMiddleware(h.handleSubcategories)))
-	mux.HandleFunc("/goals", corsMiddleware(h.authMiddleware(h.handleGoals)))
-	mux.HandleFunc("/analytics/spending", corsMiddleware(h.authMiddleware(h.SpendingByCategory)))
-	mux.HandleFunc("/analytics/trends", corsMiddleware(h.authMiddleware(h.IncomeExpenseTrends)))
-	mux.HandleFunc("/analytics/average-spending", corsMiddleware(h.authMiddleware(h.AverageSpendingByDayOfWeek)))
-	mux.HandleFunc("/analytics/forecast", corsMiddleware(h.authMiddleware(h.ForecastSavings)))
-}
-
-func (h *Handlers) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		tokenStr := r.Header.Get("Authorization")
-		if tokenStr == "" {
-			http.Error(w, "Authorization header required", http.StatusUnauthorized)
-			logger.Error("Authorization header is empty")
-			return
-		}
-		if len(tokenStr) > 7 && tokenStr[:7] == "Bearer " {
-			tokenStr = tokenStr[7:]
-		} else {
-			http.Error(w, "Authorization header must start with 'Bearer '", http.StatusUnauthorized)
-			logger.Error("Invalid Authorization header format")
-			return
-		}
-
-		if tokenStr == "" {
-			http.Error(w, "JWT token is empty", http.StatusUnauthorized)
-			logger.Error("JWT token is empty after removing Bearer prefix")
-			return
-		}
-
-		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-			return []byte(h.jwtSecret), nil
-		})
-		if err != nil || !token.Valid {
-			http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
-			logger.Error("Failed to parse or validate token: ", err)
-			return
-		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			http.Error(w, "Invalid token claims", http.StatusUnauthorized)
-			logger.Error("Failed to parse token claims")
-			return
-		}
-
-		email, ok := claims["email"].(string)
-		if !ok {
-			http.Error(w, "Invalid email in token", http.StatusUnauthorized)
-			logger.Error("Email not found in token claims")
-			return
-		}
-
-		r.Header.Set("X-User-Email", email)
-		next(w, r)
-	}
+	mux.HandleFunc("/income", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.AddIncome)))
+	mux.HandleFunc("/expense", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.AddExpense)))
+	mux.HandleFunc("/transactions", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.GetTransactions)))
+	mux.HandleFunc("/categories", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.handleCategories)))
+	mux.HandleFunc("/subcategories", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.handleSubcategories)))
+	mux.HandleFunc("/goals", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.handleGoals)))
+	mux.HandleFunc("/analytics/spending", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.SpendingByCategory)))
+	mux.HandleFunc("/analytics/trends", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.IncomeExpenseTrends)))
+	mux.HandleFunc("/analytics/average-spending", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.AverageSpendingByDayOfWeek)))
+	mux.HandleFunc("/analytics/forecast", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.ForecastSavings)))
+	mux.HandleFunc("/ws", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.WebSocketHandler)))
+	mux.HandleFunc("/budgets", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.SaveBudget)))
+	mux.HandleFunc("/budgets/list", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.GetBudgets)))
+	mux.HandleFunc("/budgets/delete", corsMiddleware(middleware.AuthMiddleware(h.jwtSecret, h.DeleteBudget)))
 }
 
 func (h *Handlers) AddIncome(w http.ResponseWriter, r *http.Request) {
@@ -140,10 +110,6 @@ func (h *Handlers) AddIncome(w http.ResponseWriter, r *http.Request) {
 		logger.Error("Failed to get user ID: ", err)
 		return
 	}
-	if userID == 0 {
-		http.Error(w, "User not found", http.StatusUnauthorized)
-		return
-	}
 
 	tx := &models.Transaction{
 		UserID:        userID,
@@ -173,6 +139,7 @@ func (h *Handlers) AddIncome(w http.ResponseWriter, r *http.Request) {
 		Date:          tx.Date,
 		Note:          tx.Note,
 	}
+	h.broadcastTransaction(userID, &response)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
@@ -209,10 +176,6 @@ func (h *Handlers) AddExpense(w http.ResponseWriter, r *http.Request) {
 		logger.Error("Failed to get user ID: ", err)
 		return
 	}
-	if userID == 0 {
-		http.Error(w, "User not found", http.StatusUnauthorized)
-		return
-	}
 
 	tx := &models.Transaction{
 		UserID:        userID,
@@ -225,9 +188,17 @@ func (h *Handlers) AddExpense(w http.ResponseWriter, r *http.Request) {
 		Note:          req.Note,
 	}
 
+	month := date.Format("2006-01")
+	budgetAmount, spent, err := h.repo.CheckBudget(userID, req.CategoryID, month)
+	if err != nil {
+		logger.Error("Failed to check budget: ", err)
+	} else if budgetAmount > 0 && spent+req.Amount > budgetAmount {
+		logger.Warn("Budget exceeded for category ", req.CategoryID, ": spent=", spent+req.Amount, ", budget=", budgetAmount)
+	}
+
 	id, err := h.repo.SaveExpense(userID, tx)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest) // Возвращаем текст ошибки
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		logger.Error("Failed to save expense: ", err)
 		return
 	}
@@ -242,6 +213,7 @@ func (h *Handlers) AddExpense(w http.ResponseWriter, r *http.Request) {
 		Date:          tx.Date,
 		Note:          tx.Note,
 	}
+	h.broadcastTransaction(userID, &response)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
@@ -263,10 +235,6 @@ func (h *Handlers) GetTransactions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Failed to get user ID", http.StatusUnauthorized)
 		logger.Error("Failed to get user ID: ", err)
-		return
-	}
-	if userID == 0 {
-		http.Error(w, "User not found", http.StatusUnauthorized)
 		return
 	}
 
@@ -301,10 +269,6 @@ func (h *Handlers) handleCategories(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Failed to get user ID", http.StatusUnauthorized)
 		logger.Error("Failed to get user ID: ", err)
-		return
-	}
-	if userID == 0 {
-		http.Error(w, "User not found", http.StatusUnauthorized)
 		return
 	}
 
@@ -359,14 +323,10 @@ func (h *Handlers) handleCategories(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleSubcategories(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.getUserIDFromToken(r)
+	_, err := h.getUserIDFromToken(r)
 	if err != nil {
 		http.Error(w, "Failed to get user ID", http.StatusUnauthorized)
 		logger.Error("Failed to get user ID: ", err)
-		return
-	}
-	if userID == 0 {
-		http.Error(w, "User not found", http.StatusUnauthorized)
 		return
 	}
 
@@ -421,10 +381,6 @@ func (h *Handlers) handleGoals(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Failed to get user ID", http.StatusUnauthorized)
 		logger.Error("Failed to get user ID: ", err)
-		return
-	}
-	if userID == 0 {
-		http.Error(w, "User not found", http.StatusUnauthorized)
 		return
 	}
 
@@ -572,12 +528,8 @@ func (h *Handlers) SpendingByCategory(w http.ResponseWriter, r *http.Request) {
 		logger.Error("Failed to get user ID: ", err)
 		return
 	}
-	if userID == 0 {
-		http.Error(w, "User not found", http.StatusUnauthorized)
-		return
-	}
 
-	month := r.URL.Query().Get("month") // Формат: YYYY-MM
+	month := r.URL.Query().Get("month")
 	if month == "" {
 		http.Error(w, "Month parameter required (YYYY-MM)", http.StatusBadRequest)
 		return
@@ -607,10 +559,6 @@ func (h *Handlers) IncomeExpenseTrends(w http.ResponseWriter, r *http.Request) {
 		logger.Error("Failed to get user ID: ", err)
 		return
 	}
-	if userID == 0 {
-		http.Error(w, "User not found", http.StatusUnauthorized)
-		return
-	}
 
 	trends, err := h.repo.IncomeExpenseTrends(userID)
 	if err != nil {
@@ -624,11 +572,6 @@ func (h *Handlers) IncomeExpenseTrends(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(trends)
 }
 
-func (h *Handlers) getUserIDFromToken(r *http.Request) (int64, error) {
-	email := r.Header.Get("X-User-Email")
-	return h.userRepo.GetUserIDByEmail(email)
-}
-
 func (h *Handlers) AverageSpendingByDayOfWeek(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -639,10 +582,6 @@ func (h *Handlers) AverageSpendingByDayOfWeek(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		http.Error(w, "Failed to get user ID", http.StatusUnauthorized)
 		logger.Error("Failed to get user ID: ", err)
-		return
-	}
-	if userID == 0 {
-		http.Error(w, "User not found", http.StatusUnauthorized)
 		return
 	}
 
@@ -670,10 +609,6 @@ func (h *Handlers) ForecastSavings(w http.ResponseWriter, r *http.Request) {
 		logger.Error("Failed to get user ID: ", err)
 		return
 	}
-	if userID == 0 {
-		http.Error(w, "User not found", http.StatusUnauthorized)
-		return
-	}
 
 	goalIDStr := r.URL.Query().Get("goal_id")
 	goalID, err := strconv.ParseInt(goalIDStr, 10, 64)
@@ -684,7 +619,7 @@ func (h *Handlers) ForecastSavings(w http.ResponseWriter, r *http.Request) {
 
 	monthsToGoal, err := h.repo.ForecastSavings(userID, goalID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest) // Возвращаем текст ошибки
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		logger.Error("Failed to forecast savings: ", err)
 		return
 	}
@@ -693,4 +628,154 @@ func (h *Handlers) ForecastSavings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
+}
+
+func (h *Handlers) WebSocketHandler(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.getUserIDFromToken(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		logger.Error("Failed to get user ID for WebSocket: ", err)
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		logger.Error("WebSocket upgrade failed: ", err)
+		return
+	}
+	defer conn.Close()
+
+	h.wsMutex.Lock()
+	h.wsConns[userID] = append(h.wsConns[userID], conn)
+	h.wsMutex.Unlock()
+
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			h.wsMutex.Lock()
+			conns := h.wsConns[userID]
+			for i, c := range conns {
+				if c == conn {
+					h.wsConns[userID] = append(conns[:i], conns[i+1:]...)
+					break
+				}
+			}
+			h.wsMutex.Unlock()
+			logger.Error("WebSocket read error: ", err)
+			return
+		}
+	}
+}
+
+func (h *Handlers) broadcastTransaction(userID int64, tx *models.TransactionResponse) {
+	h.wsMutex.RLock()
+	defer h.wsMutex.RUnlock()
+	for _, conn := range h.wsConns[userID] {
+		err := conn.WriteJSON(WebSocketMessage{Event: "new_transaction", Data: tx})
+		if err != nil {
+			logger.Error("Failed to send WebSocket message: ", err)
+		}
+	}
+}
+
+func (h *Handlers) SaveBudget(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, err := h.getUserIDFromToken(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		logger.Error("Failed to get user ID: ", err)
+		return
+	}
+	var req models.Budget
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		logger.Error("Failed to decode budget request: ", err)
+		return
+	}
+	if req.Amount <= 0 {
+		http.Error(w, "Amount must be positive", http.StatusBadRequest)
+		return
+	}
+	if req.Month == "" {
+		http.Error(w, "Month is required (YYYY-MM)", http.StatusBadRequest)
+		return
+	}
+
+	budget := &models.Budget{
+		UserID:     userID,
+		CategoryID: req.CategoryID,
+		Amount:     req.Amount,
+		Month:      req.Month,
+		CreatedAt:  time.Now(),
+	}
+	id, err := h.repo.SaveBudget(budget)
+	if err != nil {
+		http.Error(w, "Failed to save budget", http.StatusInternalServerError)
+		logger.Error("Failed to save budget: ", err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]int64{"id": id})
+}
+
+func (h *Handlers) GetBudgets(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, err := h.getUserIDFromToken(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		logger.Error("Failed to get user ID: ", err)
+		return
+	}
+	month := r.URL.Query().Get("month")
+	if month == "" {
+		http.Error(w, "Month parameter required (YYYY-MM)", http.StatusBadRequest)
+		return
+	}
+	budgets, err := h.repo.GetBudgets(userID, month)
+	if err != nil {
+		http.Error(w, "Failed to get budgets", http.StatusInternalServerError)
+		logger.Error("Failed to get budgets: ", err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(budgets)
+}
+
+func (h *Handlers) DeleteBudget(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, err := h.getUserIDFromToken(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		logger.Error("Failed to get user ID: ", err)
+		return
+	}
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid budget ID", http.StatusBadRequest)
+		logger.Error("Invalid budget ID: ", err)
+		return
+	}
+	err = h.repo.DeleteBudget(id, userID)
+	if err != nil {
+		http.Error(w, "Failed to delete budget", http.StatusInternalServerError)
+		logger.Error("Failed to delete budget: ", err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handlers) getUserIDFromToken(r *http.Request) (int64, error) {
+	return h.userRepo.GetUserIDByEmail(r.Header.Get("X-User-Email"))
 }

@@ -26,10 +26,69 @@ func (r *Repository) Close() {
 	r.db.Close()
 }
 
+func (r *Repository) SaveBudget(budget *models.Budget) (int64, error) {
+	query := `
+		INSERT INTO budgets (user_id, category_id, amount, month, created_at)
+		VALUES ($1, $2, $3, $4, $5) RETURNING id`
+	var id int64
+	err := r.db.QueryRow(query, budget.UserID, budget.CategoryID, budget.Amount, budget.Month, budget.CreatedAt).Scan(&id)
+	if err != nil {
+		logger.Error("Failed to save budget: ", err)
+		return 0, err
+	}
+	return id, nil
+}
+
+func (r *Repository) GetBudgets(userID int64, month string) ([]models.Budget, error) {
+	query := `
+		SELECT id, user_id, category_id, amount, month, created_at
+		FROM budgets WHERE user_id = $1 AND month = $2`
+	rows, err := r.db.Query(query, userID, month)
+	if err != nil {
+		logger.Error("Failed to get budgets: ", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var budgets []models.Budget
+	for rows.Next() {
+		var b models.Budget
+		err := rows.Scan(&b.ID, &b.UserID, &b.CategoryID, &b.Amount, &b.Month, &b.CreatedAt)
+		if err != nil {
+			logger.Error("Failed to scan budget: ", err)
+			return nil, err
+		}
+		budgets = append(budgets, b)
+	}
+	return budgets, nil
+}
+
+func (r *Repository) CheckBudget(userID, categoryID int64, month string) (float64, float64, error) {
+	var budgetAmount float64
+	query := `SELECT amount FROM budgets WHERE user_id=$1 AND category_id=$2 AND month=$3`
+	err := r.db.QueryRow(query, userID, categoryID, month).Scan(&budgetAmount)
+	if err == sql.ErrNoRows {
+		return 0, 0, nil
+	}
+	if err != nil {
+		logger.Error("Failed to query budget: ", err)
+		return 0, 0, err
+	}
+
+	var spent float64
+	query = `SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id=$1 AND category_id=$2 AND type='expense' AND to_char(date, 'YYYY-MM')=$3`
+	err = r.db.QueryRow(query, userID, categoryID, month).Scan(&spent)
+	if err != nil {
+		logger.Error("Failed to query spent amount: ", err)
+		return 0, 0, err
+	}
+	return budgetAmount, spent, nil
+}
+
 func (r *Repository) SaveIncome(userID int64, tx *models.Transaction) (int64, error) {
 	query := `
-        INSERT INTO incomes (user_id, amount, category_id, subcategory_id, description, tags, date, note)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`
+		INSERT INTO incomes (user_id, amount, category_id, subcategory_id, description, tags, date, note)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`
 	var id int64
 	err := r.db.QueryRow(query, userID, tx.Amount, tx.CategoryID, tx.SubcategoryID, tx.Description, pq.Array(tx.Tags), tx.Date, tx.Note).Scan(&id)
 	if err != nil {
@@ -39,8 +98,25 @@ func (r *Repository) SaveIncome(userID int64, tx *models.Transaction) (int64, er
 	return id, nil
 }
 
+func (r *Repository) DeleteBudget(id, userID int64) error {
+	query := `DELETE FROM budgets WHERE id=$1 AND user_id=$2`
+	result, err := r.db.Exec(query, id, userID)
+	if err != nil {
+		logger.Error("Failed to delete budget: ", err)
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		logger.Error("Failed to check rows affected: ", err)
+		return err
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("no budget found with id %d for user %d", id, userID)
+	}
+	return nil
+}
+
 func (r *Repository) SaveExpense(userID int64, tx *models.Transaction) (int64, error) {
-	// Проверка category_id
 	var exists bool
 	err := r.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM categories WHERE id = $1)`, tx.CategoryID).Scan(&exists)
 	if err != nil {
@@ -52,7 +128,6 @@ func (r *Repository) SaveExpense(userID int64, tx *models.Transaction) (int64, e
 		return 0, fmt.Errorf("category_id %d does not exist", tx.CategoryID)
 	}
 
-	// Проверка subcategory_id, если указан
 	if tx.SubcategoryID != nil {
 		err = r.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM subcategories WHERE id = $1)`, *tx.SubcategoryID).Scan(&exists)
 		if err != nil {
@@ -66,8 +141,8 @@ func (r *Repository) SaveExpense(userID int64, tx *models.Transaction) (int64, e
 	}
 
 	query := `
-        INSERT INTO expenses (user_id, amount, category_id, subcategory_id, description, tags, date, note)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`
+		INSERT INTO expenses (user_id, amount, category_id, subcategory_id, description, tags, date, note)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`
 	var id int64
 	err = r.db.QueryRow(query, userID, tx.Amount, tx.CategoryID, tx.SubcategoryID, tx.Description, pq.Array(tx.Tags), tx.Date, tx.Note).Scan(&id)
 	if err != nil {
@@ -83,8 +158,8 @@ func (r *Repository) GetTransactions(userID int64, txType string) ([]models.Tran
 		table = "expenses"
 	}
 	query := `
-        SELECT id, user_id, amount, category_id, subcategory_id, description, tags, date, note
-        FROM ` + table + ` WHERE user_id = $1`
+		SELECT id, user_id, amount, category_id, subcategory_id, description, tags, date, note
+		FROM ` + table + ` WHERE user_id = $1`
 	rows, err := r.db.Query(query, userID)
 	if err != nil {
 		logger.Error("Failed to get transactions: ", err)
@@ -114,8 +189,8 @@ func (r *Repository) GetTransactions(userID int64, txType string) ([]models.Tran
 
 func (r *Repository) SaveGoal(userID int64, goal *models.Goal) (int64, error) {
 	query := `
-        INSERT INTO goals (user_id, name, target_amount, current_amount, deadline, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
+		INSERT INTO goals (user_id, name, target_amount, current_amount, deadline, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
 	var id int64
 	err := r.db.QueryRow(query, userID, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.Deadline, goal.CreatedAt).Scan(&id)
 	if err != nil {
@@ -127,8 +202,8 @@ func (r *Repository) SaveGoal(userID int64, goal *models.Goal) (int64, error) {
 
 func (r *Repository) UpdateGoal(id, userID int64, goal *models.Goal) error {
 	query := `
-        UPDATE goals SET name=$1, target_amount=$2, current_amount=$3, deadline=$4
-        WHERE id=$5 AND user_id=$6`
+		UPDATE goals SET name=$1, target_amount=$2, current_amount=$3, deadline=$4
+		WHERE id=$5 AND user_id=$6`
 	_, err := r.db.Exec(query, goal.Name, goal.TargetAmount, goal.CurrentAmount, goal.Deadline, id, userID)
 	if err != nil {
 		logger.Error("Failed to update goal: ", err)
@@ -139,8 +214,8 @@ func (r *Repository) UpdateGoal(id, userID int64, goal *models.Goal) error {
 
 func (r *Repository) GetGoals(userID int64) ([]models.Goal, error) {
 	query := `
-        SELECT id, user_id, name, target_amount, current_amount, deadline, created_at
-        FROM goals WHERE user_id = $1`
+		SELECT id, user_id, name, target_amount, current_amount, deadline, created_at
+		FROM goals WHERE user_id = $1`
 	rows, err := r.db.Query(query, userID)
 	if err != nil {
 		logger.Error("Failed to get goals: ", err)
@@ -172,12 +247,11 @@ func (r *Repository) DeleteGoal(id, userID int64) error {
 }
 
 func (r *Repository) SaveCategory(category *models.Category) (int64, error) {
-	// Проверка на существование категории
 	var exists bool
 	err := r.db.QueryRow(`
-        SELECT EXISTS (
-            SELECT 1 FROM categories WHERE name = $1 AND type = $2
-        )`, category.Name, category.Type).Scan(&exists)
+		SELECT EXISTS (
+			SELECT 1 FROM categories WHERE name = $1 AND type = $2
+		)`, category.Name, category.Type).Scan(&exists)
 	if err != nil {
 		logger.Error("Failed to check category existence: ", err)
 		return 0, err
@@ -200,7 +274,6 @@ func (r *Repository) SaveCategory(category *models.Category) (int64, error) {
 }
 
 func (r *Repository) SaveSubcategory(subcategory *models.Subcategory) (int64, error) {
-	// Проверка на существование category_id
 	var exists bool
 	err := r.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM categories WHERE id = $1)`, subcategory.CategoryID).Scan(&exists)
 	if err != nil {
@@ -268,11 +341,11 @@ func (r *Repository) GetSubcategories(categoryID int64) ([]models.Subcategory, e
 
 func (r *Repository) SpendingByCategory(userID int64, month string) ([]Spending, error) {
 	query := `
-        SELECT c.name, SUM(e.amount) as total
-        FROM expenses e
-        JOIN categories c ON e.category_id = c.id
-        WHERE e.user_id = $1 AND TO_CHAR(e.date, 'YYYY-MM') = $2
-        GROUP BY c.name`
+		SELECT c.name, SUM(e.amount) as total
+		FROM expenses e
+		JOIN categories c ON e.category_id = c.id
+		WHERE e.user_id = $1 AND TO_CHAR(e.date, 'YYYY-MM') = $2
+		GROUP BY c.name`
 	rows, err := r.db.Query(query, userID, month)
 	if err != nil {
 		logger.Error("Failed to get spending data: ", err)
@@ -300,16 +373,16 @@ type Spending struct {
 
 func (r *Repository) IncomeExpenseTrends(userID int64) ([]Trend, error) {
 	query := `
-        SELECT TO_CHAR(date, 'YYYY-MM') as month, 
-               SUM(CASE WHEN t.table_name = 'incomes' THEN amount ELSE 0 END) as income,
-               SUM(CASE WHEN t.table_name = 'expenses' THEN amount ELSE 0 END) as expense
-        FROM (
-            SELECT date, amount, 'incomes' as table_name FROM incomes WHERE user_id = $1
-            UNION ALL
-            SELECT date, amount, 'expenses' as table_name FROM expenses WHERE user_id = $1
-        ) t
-        GROUP BY TO_CHAR(date, 'YYYY-MM')
-        ORDER BY month`
+		SELECT TO_CHAR(date, 'YYYY-MM') as month, 
+			SUM(CASE WHEN t.table_name = 'incomes' THEN amount ELSE 0 END) as income,
+			SUM(CASE WHEN t.table_name = 'expenses' THEN amount ELSE 0 END) as expense
+		FROM (
+			SELECT date, amount, 'incomes' as table_name FROM incomes WHERE user_id = $1
+			UNION ALL
+			SELECT date, amount, 'expenses' as table_name FROM expenses WHERE user_id = $1
+		) t
+		GROUP BY TO_CHAR(date, 'YYYY-MM')
+		ORDER BY month`
 	rows, err := r.db.Query(query, userID)
 	if err != nil {
 		logger.Error("Failed to get trends data: ", err)
@@ -338,11 +411,11 @@ type Trend struct {
 
 func (r *Repository) AverageSpendingByDayOfWeek(userID int64) ([]AverageSpending, error) {
 	query := `
-        SELECT EXTRACT(DOW FROM date) as day_of_week, AVG(amount) as avg_amount
-        FROM expenses
-        WHERE user_id = $1
-        GROUP BY EXTRACT(DOW FROM date)
-        ORDER BY day_of_week`
+		SELECT EXTRACT(DOW FROM date) as day_of_week, AVG(amount) as avg_amount
+		FROM expenses
+		WHERE user_id = $1
+		GROUP BY EXTRACT(DOW FROM date)
+		ORDER BY day_of_week`
 	rows, err := r.db.Query(query, userID)
 	if err != nil {
 		logger.Error("Failed to get average spending by day of week: ", err)
@@ -364,17 +437,16 @@ func (r *Repository) AverageSpendingByDayOfWeek(userID int64) ([]AverageSpending
 }
 
 type AverageSpending struct {
-	DayOfWeek     float64 `json:"day_of_week"` // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+	DayOfWeek     float64 `json:"day_of_week"`
 	AverageAmount float64 `json:"average_amount"`
 }
 
 func (r *Repository) ForecastSavings(userID, goalID int64) (float64, error) {
-	// Проверка на существование цели
 	var goal models.Goal
 	err := r.db.QueryRow(`
-        SELECT target_amount, current_amount
-        FROM goals
-        WHERE id = $1 AND user_id = $2`, goalID, userID).Scan(&goal.TargetAmount, &goal.CurrentAmount)
+		SELECT target_amount, current_amount
+		FROM goals
+		WHERE id = $1 AND user_id = $2`, goalID, userID).Scan(&goal.TargetAmount, &goal.CurrentAmount)
 	if err == sql.ErrNoRows {
 		logger.Error("Goal not found: ", goalID)
 		return 0, fmt.Errorf("goal with id %d does not exist for user %d", goalID, userID)
@@ -384,20 +456,19 @@ func (r *Repository) ForecastSavings(userID, goalID int64) (float64, error) {
 		return 0, err
 	}
 
-	// Рассчитать среднемесячную разницу доходов и расходов
 	query := `
-        SELECT COALESCE(AVG(income - expense), 0) as avg_savings
-        FROM (
-            SELECT TO_CHAR(date, 'YYYY-MM') as month,
-                   SUM(CASE WHEN t.table_name = 'incomes' THEN amount ELSE 0 END) as income,
-                   SUM(CASE WHEN t.table_name = 'expenses' THEN amount ELSE 0 END) as expense
-            FROM (
-                SELECT date, amount, 'incomes' as table_name FROM incomes WHERE user_id = $1
-                UNION ALL
-                SELECT date, amount, 'expenses' as table_name FROM expenses WHERE user_id = $1
-            ) t
-            GROUP BY TO_CHAR(date, 'YYYY-MM')
-        ) monthly`
+		SELECT COALESCE(AVG(income - expense), 0) as avg_savings
+		FROM (
+			SELECT TO_CHAR(date, 'YYYY-MM') as month,
+				SUM(CASE WHEN t.table_name = 'incomes' THEN amount ELSE 0 END) as income,
+				SUM(CASE WHEN t.table_name = 'expenses' THEN amount ELSE 0 END) as expense
+			FROM (
+				SELECT date, amount, 'incomes' as table_name FROM incomes WHERE user_id = $1
+				UNION ALL
+				SELECT date, amount, 'expenses' as table_name FROM expenses WHERE user_id = $1
+			) t
+			GROUP BY TO_CHAR(date, 'YYYY-MM')
+		) monthly`
 	var avgSavings float64
 	err = r.db.QueryRow(query, userID).Scan(&avgSavings)
 	if err != nil {
