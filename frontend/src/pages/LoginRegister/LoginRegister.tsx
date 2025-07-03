@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import styles from "./LoginRegister.module.scss";
 import axios, { AxiosError } from "axios";
+import { useNavigate } from "react-router-dom";
 
 function LoginRegister() {
     const [formType, setFormType] = useState<"login" | "register">("login");
@@ -11,6 +12,7 @@ function LoginRegister() {
     const [error, setError] = useState("");
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const navigate = useNavigate();
 
     const handleFormSwitch = (type: "login" | "register") => {
         setFormType(type);
@@ -93,7 +95,7 @@ function LoginRegister() {
         const success = await handleLogin(email, password);
         if (success) {
             console.log('Логин прошёл успешно');
-            // Здесь можно добавить перенаправление: navigate('/dashboard')
+            navigate('/main');
         }
     };
 
@@ -102,7 +104,7 @@ function LoginRegister() {
         const success = await handleRegister(email, password, name);
         if (success) {
             console.log('Регистрация прошла успешно');
-            // Здесь можно добавить перенаправление: navigate('/dashboard')
+            navigate('/main');
         }
     };
 
