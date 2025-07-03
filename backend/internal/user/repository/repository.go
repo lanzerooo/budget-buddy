@@ -66,3 +66,39 @@ func (r *Repository) GetUserIDByEmail(email string) (int64, error) {
 	}
 	return id, nil
 }
+
+//добавлен метод для профиля и пароля
+func (r *Repository) GetUserProfile(userID int64) (*models.User, error) {
+	query := `SELECT id, email, name, created_at FROM users WHERE id = $1`
+	user := &models.User{}
+	err := r.db.QueryRow(query, userID).Scan(&user.ID, &user.Email, &user.Name, &user.CreatedAt)
+	if err == sql.ErrNoRows {
+		logger.Error("User not found: ", userID)
+		return nil, nil
+	}
+	if err != nil {
+		logger.Error("Failed to get user profile: ", err)
+		return nil, err
+	}
+	return user, nil
+}
+
+func (r *Repository) UpdateUserName(userID int64, name string) error {
+	query := `UPDATE users SET name = $1 WHERE id = $2`
+	_, err := r.db.Exec(query, name, userID)
+	if err != nil {
+		logger.Error("Failed to update user name: ", err)
+		return err
+	}
+	return nil
+}
+
+func (r *Repository) UpdateUserPassword(userID int64, hashedPassword string) error {
+	query := `UPDATE users SET password = $1 WHERE id = $2`
+	_, err := r.db.Exec(query, hashedPassword, userID)
+	if err != nil {
+		logger.Error("Failed to update user password: ", err)
+		return err
+	}
+	return nil
+}

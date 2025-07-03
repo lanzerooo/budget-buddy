@@ -41,7 +41,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Инициализация обработчиков
-	handlers.SetupRoutes(mux, repo)
+	handlers.SetupRoutes(mux, repo, cfg)
 
 	// Настройка сервера
 	server := &http.Server{
