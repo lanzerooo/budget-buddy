@@ -1,82 +1,195 @@
-body {
-    font-family: Arial, sans-serif;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+// Основные цвета
+$primary-bg: #06090E; // Темный фон (фон страницы)
+$secondary-bg: #444444; // Вторичный фон (форма)
+$accent-yellow: #FFD600; // Желтый акцент (текст, активные элементы)
+$accent-orange: #FF4C2B; // Оранжевый акцент (hover, фокус)
+$accent-purple: #600095; // Фиолетовый акцент (кнопки, границы)
+
+// Обертка всей страницы
+.login{
     min-height: 100vh;
-    margin: 0;
-    background-color: #f0f2f5;
-}
-
-.container {
-    background: white;
-    padding: 20px;
-    border-radius: 8px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-    width: 100%;
-    max-width: 300px;
-}
-
-.tab {
     display: flex;
-    justify-content: space-around;
-    margin-bottom: 20px;
+    flex-direction: column;
+    justify-content: space-between;
+}
+.wrap {
+  
+  display: flex;
+  flex-direction: column;
+
+}
+
+// Контейнер формы
+.container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+// Вкладки (Логин/Регистрация)
+.tab {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
 }
 
 .tabButton {
-    flex: 1;
-    padding: 10px;
-    cursor: pointer;
-    border: none;
-    background: #e0e0e0;
-    font-size: 14px;
-    transition: background 0.3s;
+  padding: 10px 20px;
+  background-color: $secondary-bg;
+  color: $accent-yellow;
+  border: 2px solid $accent-purple;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.3s ease;
 
-    &.active {
-        background: #007bff;
-        color: white;
-    }
+  &:hover {
+    background-color: $accent-orange;
+    border-color: $accent-orange;
+  }
+
+  &.active {
+    background-color: $accent-purple;
+    color: $accent-yellow;
+    font-weight: bold;
+  }
 }
 
-.form {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-
-    h2 {
-        text-align: center;
-        font-size: 20px;
-        font-weight: bold;
-        margin-bottom: 16px;
-    }
-}
-
-.input {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    box-sizing: border-box;
-}
-
-.button {
-    width: 100%;
-    padding: 10px;
-    background: #007bff;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.3s;
-
-    &:hover {
-        background: #0056b3;
-    }
-}
-
+// Сообщения об ошибке и успехе
 .error {
-    color: red;
+  color: $accent-orange;
+  font-size: 0.9rem;
+  margin-bottom: 15px;
+  text-align: center;
+}
+
+.success {
+  color: $accent-yellow;
+  font-size: 0.9rem;
+  margin-bottom: 15px;
+  text-align: center;
+}
+
+// Форма
+.form {
+  background-color: $secondary-bg;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+
+  h2 {
+    font-size: 1.5rem;
+    color: $accent-yellow;
     text-align: center;
-    margin-bottom: 10px;
-    font-size: 14px;
+    margin-bottom: 20px;
+  }
+}
+
+// Поля ввода
+.input {
+  width: auto;
+  padding: 10px;
+  border: 2px solid $accent-purple;
+  border-radius: 4px;
+  background-color: $primary-bg;
+  color: $accent-yellow;
+  font-size: 1rem;
+
+  &::placeholder {
+    color: $accent-yellow;
+    opacity: 0.7;
+  }
+
+  &:focus {
+    outline: none;
+    border-color: $accent-orange;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+// Кнопка
+.button {
+  padding: 10px;
+  background-color: $accent-purple;
+  color: $accent-yellow;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+
+  &:hover {
+    background-color: $accent-orange;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+// Лоадер
+.loader {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid $accent-yellow; // Исправлено: $accent-yellow вместо $accent$yello
+  border-top-color: $accent-orange;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+// Анимация лоадера
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// Адаптивность
+@media (max-width: 768px) {
+  .container {
+    padding: 10px;
+  }
+
+  .form {
+    padding: 20px;
+    max-width: 300px;
+  }
+
+  .tabButton {
+    padding: 8px 15px;
+    font-size: 0.9rem;
+  }
+
+  .form h2 {
+    font-size: 1.2rem;
+  }
+
+  .input {
+    font-size: 0.9rem;
+  }
+
+  .button {
+    font-size: 0.9rem;
+  }
+
+  .error,
+  .success {
+    font-size: 0.8rem;
+  }
 }
