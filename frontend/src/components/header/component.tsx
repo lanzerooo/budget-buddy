@@ -8,7 +8,7 @@ interface HeaderProps {
 }
 
 // Создаем компонент Header
-export const Header: React.FC<HeaderProps> = ({ appName = 'MyApp' }) => {
+export const Header: React.FC<HeaderProps> = ({ appName = 'BudgetBuddy' }) => {
   return (
     <header className={styles.header}>
       <div className={styles.container}>
@@ -17,7 +17,7 @@ export const Header: React.FC<HeaderProps> = ({ appName = 'MyApp' }) => {
         
         {/* Навигация */}
         <nav className={styles.nav}>
-          <Link to="/" className={styles.navLink}>Главная</Link>
+          <Link to="/main" className={styles.navLink}>Главная</Link>
           <Link to="/transactions" className={styles.navLink}>Транзакции</Link>
           <Link to="/goals" className={styles.navLink}>Цели</Link>
           <Link to="/analytics" className={styles.navLink}>Аналитика</Link>
