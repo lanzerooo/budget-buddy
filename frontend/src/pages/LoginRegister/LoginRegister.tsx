@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import styles from "./LoginRegister.module.scss";
 import axios, { AxiosError } from "axios";
 import { useNavigate } from "react-router-dom";
+import { Header } from "../../components/header/component";
+import { Footer } from "../../components/footer/component";
 
 function LoginRegister() {
     const [formType, setFormType] = useState<"login" | "register">("login");
@@ -62,7 +64,7 @@ function LoginRegister() {
         }
         setIsLoading(true);
         try {
-            const response = await axios.post<{ token: string }>('http://localhost:8081/register', {
+            const response = await axios.post<{ token: string }>('http://localhost:8080/register', {
                 email,
                 password,
                 name,
@@ -109,6 +111,9 @@ function LoginRegister() {
     };
 
     return (
+        <div className={styles.login}>
+        <Header/>
+        <div className={styles.wrap}>
         <div className={styles.container}>
             <div className={styles.tab}>
                 <button
@@ -195,6 +200,9 @@ function LoginRegister() {
                     </button>
                 </form>
             )}
+        </div>
+        </div>
+        <Footer/>
         </div>
     );
 }
